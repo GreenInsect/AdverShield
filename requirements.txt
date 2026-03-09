@@ -1,0 +1,14 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-socketio>=5.11.2
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+opencv-python-headless>=4.9.0.80
+numpy>=1.26.4
+torch>=2.2.2
+torchvision>=0.17.2
+ultralytics>=8.2.0
+Pillow>=10.3.0
+python-dotenv>=1.0.1
+kornia>=0.6.12
+scikit-learn>=1.0.2

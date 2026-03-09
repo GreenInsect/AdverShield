@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AdverShield · 对抗样本防御系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<!-- ══════════════════════════════════════════════════════ HEADER -->
+<header class="site-header">
+  <div class="header-left">
+    <div class="logo-mark">
+      <svg width="36" height="36" viewBox="0 0 36 36">
+        <polygon points="18,2 34,10 34,26 18,34 2,26 2,10" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <polygon points="18,8 28,13 28,23 18,28 8,23 8,13" fill="none" stroke="var(--accent2)" stroke-width="1" opacity="0.6"/>
+        <circle cx="18" cy="18" r="4" fill="var(--accent)"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <span class="logo-main">AdverShield</span>
+      <span class="logo-sub">ADVERSARIAL DEFENSE SYSTEM</span>
+    </div>
+  </div>
+  <div class="header-center">
+    <div class="status-bar">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">正在连接...</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="sys-info">
+      <span class="info-chip" id="deviceChip">DEVICE: —</span>
+      <span class="info-chip" id="fpsChip">FPS: —</span>
+      <span class="info-chip" id="latencyChip">LAT: —ms</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════ MAIN LAYOUT -->
+<main class="app-layout">
+
+  <!-- ── LEFT PANEL ─────────────────────────────────────────── -->
+  <aside class="panel panel-left">
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">◈</span>
+        <span>模型选择</span>
+        <span class="section-badge" id="modelBadge">YOLOv8n</span>
+      </div>
+      <div class="model-grid" id="modelGrid">
+        <!-- populated by JS -->
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">⬡</span>
+        <span>推理参数</span>
+      </div>
+      <div class="param-row">
+        <label>置信度阈值</label>
+        <div class="slider-wrap">
+          <input type="range" id="confSlider" min="0.1" max="0.95" step="0.05" value="0.4">
+          <span class="slider-val" id="confVal">0.40</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">◉</span>
+        <span>检测可视化</span>
+      </div>
+      <label class="toggle-row">
+        <span>显示检测框</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="showBoxes" checked>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </div>
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">▣</span>
+        <span>实时统计</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-val" id="statPersons">0</div>
+          <div class="stat-label">检测人数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="statFrames">0</div>
+          <div class="stat-label">处理帧数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="statFps">—</div>
+          <div class="stat-label">当前FPS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="statLatency">—</div>
+          <div class="stat-label">延迟(ms)</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">◈</span>
+        <span>检测详情</span>
+      </div>
+      <div class="detection-list" id="detectionList">
+        <div class="det-empty">暂无检测目标</div>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ── CENTER STAGE ───────────────────────────────────────── -->
+  <section class="center-stage">
+    <div class="video-container">
+      <!-- 原始摄像头（隐藏，用于推帧） -->
+      <video id="localVideo" autoplay muted playsinline></video>
+
+      <!-- 后端处理后返回的帧 -->
+      <canvas id="outputCanvas"></canvas>
+
+      <!-- 覆盖层 HUD -->
+      <div class="video-hud">
+        <div class="hud-corner hud-tl">
+          <span class="hud-text">LIVE</span>
+          <span class="hud-dot blink"></span>
+        </div>
+        <div class="hud-corner hud-tr">
+          <span class="hud-text" id="hudModel">YOLOv8n</span>
+        </div>
+        <div class="hud-corner hud-bl">
+          <span class="hud-text" id="hudPurify">PURIFY: OFF</span>
+        </div>
+        <div class="hud-corner hud-br">
+          <span class="hud-text" id="hudPersonCount">0 PERSONS</span>
+        </div>
+        <!-- 扫描线动画 -->
+        <div class="scan-line"></div>
+      </div>
+
+      <!-- 启动引导 -->
+      <div class="video-overlay" id="startOverlay">
+        <div class="start-content">
+          <div class="start-icon">
+            <svg width="64" height="64" viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r="30" fill="none" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 4"/>
+              <circle cx="32" cy="32" r="20" fill="none" stroke="var(--accent2)" stroke-width="1"/>
+              <polygon points="26,22 26,42 46,32" fill="var(--accent)"/>
+            </svg>
+          </div>
+          <div class="start-title">启动摄像头</div>
+          <div class="start-sub">点击开始实时对抗补丁检测</div>
+          <button class="btn-start" id="startBtn">
+            <span>◉ 开始检测</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部控制条 -->
+    <div class="control-bar">
+      <button class="ctrl-btn" id="stopBtn" disabled>
+        <span>◼ 停止</span>
+      </button>
+      <button class="ctrl-btn ctrl-primary" id="captureBtn" disabled>
+        <span>⊡ 截图</span>
+      </button>
+      <button class="ctrl-btn" id="fullscreenBtn">
+        <span>⊞ 全屏</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ── RIGHT PANEL ────────────────────────────────────────── -->
+  <aside class="panel panel-right">
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">⬡</span>
+        <span>补丁净化防御</span>
+      </div>
+      <label class="toggle-row highlight-toggle">
+        <span>启用SAC净化</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="enablePurify">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </div>
+      </label>
+      <div class="purify-status" id="purifyStatus">
+        <div class="purify-indicator inactive">
+          <span class="pi-dot"></span>
+          <span class="pi-text">净化模块待机中</span>
+        </div>
+      </div>
+      <div class="purify-desc">
+        <p>使用 <strong>SAC (Shape-Completion Adversarial)</strong> 算法检测并去除对抗补丁，恢复原始图像语义。</p>
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">▦</span>
+        <span>人体覆盖图片</span>
+      </div>
+      <label class="toggle-row">
+        <span>启用图片叠加</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="enableOverlay">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </div>
+      </label>
+
+      <div class="overlay-controls" id="overlayControls">
+        <div class="param-row" style="margin-top:10px">
+          <label>叠加位置</label>
+          <select class="sel" id="overlayPosition">
+            <option value="head">头部</option>
+            <option value="chest">胸部</option>
+            <option value="full">全身</option>
+          </select>
+        </div>
+
+        <div class="overlay-grid" id="overlayGrid">
+          <div class="ov-loading">加载中...</div>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+          <input type="file" id="overlayUpload" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+          <button class="btn-upload" onclick="document.getElementById('overlayUpload').click()">
+            ⊕ 上传自定义图片
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-header">
+        <span class="section-icon">◈</span>
+        <span>系统日志</span>
+      </div>
+      <div class="log-console" id="logConsole">
+        <div class="log-entry log-info">系统初始化...</div>
+      </div>
+    </section>
+
+  </aside>
+
+</main>
+
+<!-- ══════════════════════════════════════════════════════ SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
