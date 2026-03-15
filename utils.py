@@ -6,9 +6,55 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from torch.autograd import Variable
+import struct
 
-import struct # get_image_size
-import imghdr # get_image_size
+def get_image_size(fname):
+    '''确定图像类型并返回其尺寸'''
+    try:
+        with open(fname, 'rb') as fhandle:
+            head = fhandle.read(32) # 读取足够的字节用于判断格式
+            if len(head) < 24:
+                return None
+
+            # 1. 判断是否为 PNG
+            if head[:8] == b'\x89PNG\r\n\x1a\n':
+                check = struct.unpack('>i', head[4:8])[0]
+                if check != 0x0d0a1a0a:
+                    return None
+                width, height = struct.unpack('>ii', head[16:24])
+                return width, height
+
+            # 2. 判断是否为 GIF
+            elif head[:6] in (b'GIF87a', b'GIF89a'):
+                width, height = struct.unpack('<HH', head[6:10])
+                return width, height
+
+            # 3. 判断是否为 JPEG
+            elif head[:2] == b'\xff\xd8':
+                fhandle.seek(0)
+                size = 2 
+                ftype = 0 
+                while not 0xc0 <= ftype <= 0xcf:
+                    fhandle.seek(size, 1)
+                    byte = fhandle.read(1)
+                    while ord(byte) == 0xff:
+                        byte = fhandle.read(1)
+                    ftype = ord(byte)
+                    size = struct.unpack('>H', fhandle.read(2))[0] - 2 
+                fhandle.seek(1, 1)
+                height, width = struct.unpack('>HH', fhandle.read(4))
+                return width, height
+            
+            # 4. 判断是否为 WEBP
+            elif head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+                # WebP 尺寸获取逻辑较复杂，如果项目需要 WebP 尺寸，建议用 PIL
+                with Image.open(fname) as img:
+                    return img.size
+
+    except Exception as e:
+        print(f"Error getting image size for {fname}: {e}")
+        return None
+    return None
 
 def sigmoid(x):
     return 1.0/(math.exp(-x)+1.)
@@ -405,40 +451,40 @@ def file_lines(thefilepath):
     thefile.close( )
     return count
 
-def get_image_size(fname):
-    '''Determine the image type of fhandle and return its size.
-    from draco'''
-    with open(fname, 'rb') as fhandle:
-        head = fhandle.read(24)
-        if len(head) != 24: 
-            return
-        if imghdr.what(fname) == 'png':
-            check = struct.unpack('>i', head[4:8])[0]
-            if check != 0x0d0a1a0a:
-                return
-            width, height = struct.unpack('>ii', head[16:24])
-        elif imghdr.what(fname) == 'gif':
-            width, height = struct.unpack('<HH', head[6:10])
-        elif imghdr.what(fname) == 'jpeg' or imghdr.what(fname) == 'jpg':
-            try:
-                fhandle.seek(0) # Read 0xff next
-                size = 2 
-                ftype = 0 
-                while not 0xc0 <= ftype <= 0xcf:
-                    fhandle.seek(size, 1)
-                    byte = fhandle.read(1)
-                    while ord(byte) == 0xff:
-                        byte = fhandle.read(1)
-                    ftype = ord(byte)
-                    size = struct.unpack('>H', fhandle.read(2))[0] - 2 
-                # We are at a SOFn block
-                fhandle.seek(1, 1)  # Skip `precision' byte.
-                height, width = struct.unpack('>HH', fhandle.read(4))
-            except Exception: #IGNORE:W0703
-                return
-        else:
-            return
-        return width, height
+# def get_image_size(fname):
+#     '''Determine the image type of fhandle and return its size.
+#     from draco'''
+#     with open(fname, 'rb') as fhandle:
+#         head = fhandle.read(24)
+#         if len(head) != 24: 
+#             return
+#         if imghdr.what(fname) == 'png':
+#             check = struct.unpack('>i', head[4:8])[0]
+#             if check != 0x0d0a1a0a:
+#                 return
+#             width, height = struct.unpack('>ii', head[16:24])
+#         elif imghdr.what(fname) == 'gif':
+#             width, height = struct.unpack('<HH', head[6:10])
+#         elif imghdr.what(fname) == 'jpeg' or imghdr.what(fname) == 'jpg':
+#             try:
+#                 fhandle.seek(0) # Read 0xff next
+#                 size = 2 
+#                 ftype = 0 
+#                 while not 0xc0 <= ftype <= 0xcf:
+#                     fhandle.seek(size, 1)
+#                     byte = fhandle.read(1)
+#                     while ord(byte) == 0xff:
+#                         byte = fhandle.read(1)
+#                     ftype = ord(byte)
+#                     size = struct.unpack('>H', fhandle.read(2))[0] - 2 
+#                 # We are at a SOFn block
+#                 fhandle.seek(1, 1)  # Skip `precision' byte.
+#                 height, width = struct.unpack('>HH', fhandle.read(4))
+#             except Exception: #IGNORE:W0703
+#                 return
+#         else:
+#             return
+#         return width, height
 
 def logging(message):
     print('%s %s' % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), message))

@@ -1,607 +1,455 @@
-/**
- * AdverShield · Frontend Application
- * WebRTC Camera → Socket.IO Stream → Backend YOLO + SAC → Canvas Display
- */
-
 'use strict';
 
-// ─── Configuration ───────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 const CONFIG = {
-  SERVER_URL: window.location.origin,
-  FRAME_INTERVAL_MS: 80,      // ~12 FPS send rate
-  JPEG_QUALITY: 0.75,
-  VIDEO_CONSTRAINTS: {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    facingMode: 'user',
-  },
+  SERVER_URL:       window.location.origin,
+  FRAME_INTERVAL_MS: 80,
+  JPEG_QUALITY:     0.75,
+  VIDEO_CONSTRAINTS: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' },
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
-  socket: null,
-  stream: null,
-  frameTimer: null,
-  isRunning: false,
-  selectedModel: 'yolov8n',
-  selectedOverlay: null,
-  overlayEnabled: false,
-  purifyEnabled: false,
-  showBoxes: true,
-  confidence: 0.4,
-  overlayPosition: 'head',
-  frameCount: 0,
-  lastFrameTime: 0,
-  fpsHistory: [],
+  socket: null, stream: null, frameTimer: null,
+  isRunning: false, source: 'webcam',           // 'webcam' | 'carla'
+  carlaConnected: false, autoDrive: false,
+  selectedModel: 'yolov8n', selectedOverlay: null,
+  overlayEnabled: false, purifyEnabled: false,
+  showBoxes: true, confidence: 0.4, overlayPosition: 'head',
+  fpsHistory: [], lastFrameTime: 0,
 };
 
-// ─── DOM Refs ─────────────────────────────────────────────────────────────────
-const dom = {
-  localVideo:      () => document.getElementById('localVideo'),
-  outputCanvas:    () => document.getElementById('outputCanvas'),
-  startOverlay:    () => document.getElementById('startOverlay'),
-  startBtn:        () => document.getElementById('startBtn'),
-  stopBtn:         () => document.getElementById('stopBtn'),
-  captureBtn:      () => document.getElementById('captureBtn'),
-  fullscreenBtn:   () => document.getElementById('fullscreenBtn'),
-  statusDot:       () => document.getElementById('statusDot'),
-  statusLabel:     () => document.getElementById('statusLabel'),
-  deviceChip:      () => document.getElementById('deviceChip'),
-  fpsChip:         () => document.getElementById('fpsChip'),
-  latencyChip:     () => document.getElementById('latencyChip'),
-  modelGrid:       () => document.getElementById('modelGrid'),
-  modelBadge:      () => document.getElementById('modelBadge'),
-  confSlider:      () => document.getElementById('confSlider'),
-  confVal:         () => document.getElementById('confVal'),
-  showBoxes:       () => document.getElementById('showBoxes'),
-  enablePurify:    () => document.getElementById('enablePurify'),
-  enableOverlay:   () => document.getElementById('enableOverlay'),
-  overlayControls: () => document.getElementById('overlayControls'),
-  overlayGrid:     () => document.getElementById('overlayGrid'),
-  overlayPosition: () => document.getElementById('overlayPosition'),
-  overlayUpload:   () => document.getElementById('overlayUpload'),
-  logConsole:      () => document.getElementById('logConsole'),
-  purifyStatus:    () => document.getElementById('purifyStatus'),
-  detectionList:   () => document.getElementById('detectionList'),
-  statPersons:     () => document.getElementById('statPersons'),
-  statFrames:      () => document.getElementById('statFrames'),
-  statFps:         () => document.getElementById('statFps'),
-  statLatency:     () => document.getElementById('statLatency'),
-  hudModel:        () => document.getElementById('hudModel'),
-  hudPurify:       () => document.getElementById('hudPurify'),
-  hudPersonCount:  () => document.getElementById('hudPersonCount'),
-};
+// ─── DOM Helpers ──────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
 
-// ─── Logging ─────────────────────────────────────────────────────────────────
-function log(msg, level = 'info') {
-  const console_ = dom.logConsole();
-  const entry = document.createElement('div');
-  entry.className = `log-entry log-${level}`;
-  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  entry.innerHTML = `<span class="log-ts">[${ts}]</span>${msg}`;
-  console_.appendChild(entry);
-  console_.scrollTop = console_.scrollHeight;
-  // Keep max 60 entries
-  while (console_.children.length > 60) {
-    console_.removeChild(console_.firstChild);
-  }
+// ─── Log ─────────────────────────────────────────────────────────────────────
+function log(msg, level='info') {
+  const c = $('logConsole');
+  const d = document.createElement('div');
+  d.className = `log-entry log-${level}`;
+  const ts = new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  d.innerHTML = `<span class="log-ts">[${ts}]</span>${msg}`;
+  c.appendChild(d);
+  c.scrollTop = c.scrollHeight;
+  while (c.children.length > 60) c.removeChild(c.firstChild);
 }
 
-// ─── Connection ───────────────────────────────────────────────────────────────
+// ─── Socket ───────────────────────────────────────────────────────────────────
 function initSocket() {
   log('正在连接服务器...');
-  state.socket = io(CONFIG.SERVER_URL, {
-    transports: ['websocket'],
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1500,
-  });
-
-  state.socket.on('connect', () => {
-    log('Socket.IO 连接成功', 'ok');
-    setStatus('connected', '已连接');
-  });
-
-  state.socket.on('disconnect', () => {
-    log('连接断开', 'warn');
-    setStatus('error', '连接断开');
-    if (state.isRunning) stopStream();
-  });
-
-  state.socket.on('connect_error', (err) => {
-    log(`连接错误: ${err.message}`, 'error');
-    setStatus('error', '连接失败');
-  });
-
-  state.socket.on('connected', (data) => {
-    log(`服务器确认 · 设备: ${data.device}`, 'ok');
-    dom.deviceChip().textContent = `DEVICE: ${data.device.toUpperCase()}`;
-    loadModels();
-    loadOverlays();
-  });
-
+  state.socket = io(CONFIG.SERVER_URL, { transports:['websocket'], reconnectionAttempts:10, reconnectionDelay:1500 });
+  state.socket.on('connect',       () => { log('Socket.IO 连接成功','ok'); setStatus('connected','已连接'); });
+  state.socket.on('disconnect',    () => { log('连接断开','warn'); setStatus('error','连接断开'); if(state.isRunning) stopStream(); });
+  state.socket.on('connect_error', e  => { log(`连接错误: ${e.message}`,'error'); setStatus('error','连接失败'); });
+  state.socket.on('connected',     d  => { log(`设备: ${d.device}`,'ok'); $('deviceChip').textContent=`DEVICE: ${d.device.toUpperCase()}`; loadModels(); loadOverlays(); });
   state.socket.on('processed_frame', handleProcessedFrame);
+  state.socket.on('carla_status',    handleCarlaStatus);
 }
 
-// ─── Status ───────────────────────────────────────────────────────────────────
 function setStatus(type, label) {
-  const dot = dom.statusDot();
-  dot.className = `status-dot ${type}`;
-  dom.statusLabel().textContent = label;
+  $('statusDot').className = `status-dot ${type}`;
+  $('statusLabel').textContent = label;
+}
+
+// ─── Source Switch ────────────────────────────────────────────────────────────
+function switchSource(src) {
+  state.source = src;
+  $('srcWebcam').classList.toggle('active', src==='webcam');
+  $('srcCarla').classList.toggle('active',  src==='carla');
+  $('carlaPanel').style.display = src==='carla' ? '' : 'none';
+  $('carlaHud').style.display   = src==='carla' ? '' : 'none';
+  $('hudSource').textContent    = src==='carla' ? 'CARLA' : 'WEBCAM';
+  // 更新启动引导文字
+  if (src==='carla') {
+    $('startTitle').textContent = '启动 Carla 仿真';
+    $('startSub').textContent   = '请先在右侧面板连接仿真器';
+  } else {
+    $('startTitle').textContent = '启动摄像头';
+    $('startSub').textContent   = '点击开始实时对抗补丁检测';
+  }
+  if (state.isRunning) stopStream();
+  log(`图像源切换: ${src==='carla'?'Carla仿真':'用户摄像头'}`,'info');
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 async function loadModels() {
   try {
-    const res = await fetch('/api/models');
-    const data = await res.json();
-    renderModelGrid(data.models);
-    log(`已加载 ${data.models.length} 个模型配置`, 'ok');
-  } catch (e) {
-    log('模型列表加载失败', 'error');
-  }
-}
-
-function renderModelGrid(models) {
-  const grid = dom.modelGrid();
-  grid.innerHTML = '';
-  models.forEach(name => {
-    const btn = document.createElement('button');
-    btn.className = 'model-btn' + (name === state.selectedModel ? ' active' : '');
-    btn.textContent = name;
-    btn.dataset.model = name;
-    btn.addEventListener('click', () => selectModel(name, btn));
-    grid.appendChild(btn);
-  });
+    const d = await (await fetch('/api/models')).json();
+    const grid = $('modelGrid'); grid.innerHTML='';
+    d.models.forEach(name => {
+      const btn = document.createElement('button');
+      btn.className = 'model-btn' + (name===state.selectedModel?' active':'');
+      btn.textContent = name; btn.dataset.model = name;
+      btn.addEventListener('click', () => selectModel(name, btn));
+      grid.appendChild(btn);
+    });
+    log(`已加载 ${d.models.length} 个模型配置`,'ok');
+  } catch(e) { log('模型列表加载失败','error'); }
 }
 
 function selectModel(name, btn) {
-  // Update UI
-  document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active', 'loading');
-  
+  document.querySelectorAll('.model-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active','loading');
   state.selectedModel = name;
-  dom.modelBadge().textContent = name;
-  dom.hudModel().textContent = name.toUpperCase();
-  
-  // Emit settings
-  emitSettings({ model: name });
-  
-  setTimeout(() => btn.classList.remove('loading'), 800);
-  log(`切换模型: ${name}`, 'info');
+  $('modelBadge').textContent = name;
+  $('hudModel').textContent   = name.toUpperCase();
+  emitSettings({model:name});
+  setTimeout(()=>btn.classList.remove('loading'), 800);
+  log(`切换模型: ${name}`,'info');
 }
 
 // ─── Overlays ─────────────────────────────────────────────────────────────────
 async function loadOverlays() {
   try {
-    const res = await fetch('/api/overlays');
-    const data = await res.json();
-    renderOverlayGrid(data.overlays);
-  } catch (e) {
-    log('覆盖图片加载失败', 'warn');
-  }
+    const d = await (await fetch('/api/overlays')).json();
+    renderOverlayGrid(d.overlays);
+  } catch(e) { log('覆盖图片加载失败','warn'); }
 }
 
 function renderOverlayGrid(overlays) {
-  const grid = dom.overlayGrid();
-  grid.innerHTML = '';
-
-  // None option
-  const noneItem = document.createElement('div');
-  noneItem.className = 'ov-item ov-none selected';
-  noneItem.innerHTML = '<span>无</span>';
-  noneItem.addEventListener('click', () => selectOverlay(null, noneItem));
-  grid.appendChild(noneItem);
-
-  overlays.forEach(filename => {
-    const item = document.createElement('div');
-    item.className = 'ov-item';
-    item.dataset.filename = filename;
-    item.innerHTML = `
-      <img src="/static/images/overlays/${encodeURIComponent(filename)}" alt="${filename}">
-      <div class="ov-label">${filename}</div>
-      <button class="ov-delete-btn" title="删除">✕</button>
-    `;
-
-    // 点击图片区域 = 选中
-    item.querySelector('img').addEventListener('click', () => selectOverlay(filename, item));
-    item.querySelector('.ov-label').addEventListener('click', () => selectOverlay(filename, item));
-
-    // 点击删除按钮
-    item.querySelector('.ov-delete-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteOverlay(filename, item);
-    });
-
+  const grid = $('overlayGrid'); grid.innerHTML='';
+  const none = document.createElement('div');
+  none.className='ov-item ov-none selected'; none.innerHTML='<span>无</span>';
+  none.addEventListener('click',()=>selectOverlay(null,none));
+  grid.appendChild(none);
+  overlays.forEach(f=>{
+    const item=document.createElement('div'); item.className='ov-item'; item.dataset.filename=f;
+    item.innerHTML=`<img src="/static/images/overlays/${encodeURIComponent(f)}" alt="${f}"><div class="ov-label">${f}</div><button class="ov-delete-btn" title="删除">✕</button>`;
+    item.querySelector('img').addEventListener('click',()=>selectOverlay(f,item));
+    item.querySelector('.ov-label').addEventListener('click',()=>selectOverlay(f,item));
+    item.querySelector('.ov-delete-btn').addEventListener('click',e=>{e.stopPropagation();deleteOverlay(f,item);});
     grid.appendChild(item);
   });
+}
+
+function selectOverlay(filename, itemEl) {
+  document.querySelectorAll('.ov-item').forEach(i=>i.classList.remove('selected'));
+  itemEl.classList.add('selected');
+  state.selectedOverlay = filename;
+  emitSettings({overlay:filename});
+  log(`选择覆盖图: ${filename||'无'}`,'info');
 }
 
 async function deleteOverlay(filename, itemEl) {
   if (!confirm(`确定删除「${filename}」？`)) return;
   try {
-    const res = await fetch(`/api/overlays/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/overlays/${encodeURIComponent(filename)}`,{method:'DELETE'});
     if (res.ok) {
-      // 若删除的是当前选中项，重置为"无"
-      if (state.selectedOverlay === filename) {
-        state.selectedOverlay = null;
-        emitSettings({ overlay: null });
-        document.querySelector('.ov-none')?.classList.add('selected');
-      }
-      itemEl.remove();
-      log(`已删除覆盖图: ${filename}`, 'warn');
-    } else {
-      const err = await res.json().catch(() => ({}));
-      log(`删除失败: ${err.detail || res.status}`, 'error');
+      if(state.selectedOverlay===filename){ state.selectedOverlay=null; emitSettings({overlay:null}); document.querySelector('.ov-none')?.classList.add('selected'); }
+      itemEl.remove(); log(`已删除: ${filename}`,'warn');
     }
-  } catch (e) {
-    log(`删除请求异常: ${e.message}`, 'error');
-  }
+  } catch(e) { log(`删除失败: ${e.message}`,'error'); }
 }
 
-function selectOverlay(filename, itemEl) {
-  document.querySelectorAll('.ov-item').forEach(i => i.classList.remove('selected'));
-  itemEl.classList.add('selected');
-  state.selectedOverlay = filename;
-  emitSettings({ overlay: filename });
-  log(`选择覆盖图: ${filename || '无'}`, 'info');
-}
-
-// ─── Camera & Stream ──────────────────────────────────────────────────────────
-
-/**
- * 兼容性 getUserMedia：
- *  - 标准 API (HTTPS / localhost)
- *  - 旧版前缀 API (部分老浏览器)
- *  - HTTP + 非localhost 时给出明确提示
- */
+// ─── Webcam Stream ────────────────────────────────────────────────────────────
 function getCompatibleGetUserMedia() {
-  // 标准 API
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    return (constraints) => navigator.mediaDevices.getUserMedia(constraints);
-  }
-  // 旧版前缀 API
-  const legacyGUM = navigator.getUserMedia
-    || navigator.webkitGetUserMedia
-    || navigator.mozGetUserMedia
-    || navigator.msGetUserMedia;
-
-  if (legacyGUM) {
-    return (constraints) => new Promise((resolve, reject) => {
-      legacyGUM.call(navigator, constraints, resolve, reject);
-    });
-  }
+  if (navigator.mediaDevices?.getUserMedia) return c=>navigator.mediaDevices.getUserMedia(c);
+  const gum = navigator.getUserMedia||navigator.webkitGetUserMedia||navigator.mozGetUserMedia;
+  if (gum) return c=>new Promise((res,rej)=>gum.call(navigator,c,res,rej));
   return null;
 }
 
-async function startStream() {
-  // ── 检查是否处于安全上下文 ──
-  const isSecure = location.protocol === 'https:'
-    || location.hostname === 'localhost'
-    || location.hostname === '127.0.0.1'
-    || location.hostname === '::1';
-
-  if (!isSecure) {
-    const msg = `摄像头需要 HTTPS 访问。\n\n` +
-      `当前地址: ${location.href}\n\n` +
-      `解决方案（任选一种）：\n` +
-      `① 用 localhost 访问: http://localhost:8000\n` +
-      `② 启用 HTTPS（运行 start_https.sh）\n` +
-      `③ Chrome 将此地址加入白名单:\n` +
-      `   chrome://flags/#unsafely-treat-insecure-origin-as-secure`;
-    log('⚠ 非安全上下文，摄像头不可用', 'error');
-    log('请使用 HTTPS 或 localhost 访问', 'warn');
-    showHttpsModal(msg);
-    return;
-  }
-
-  const getUserMedia = getCompatibleGetUserMedia();
-  if (!getUserMedia) {
-    log('浏览器不支持摄像头API，请升级Chrome/Firefox', 'error');
-    alert('您的浏览器不支持摄像头，请使用最新版 Chrome 或 Firefox。');
-    return;
-  }
-
-  try {
-    log('正在申请摄像头权限...');
-    state.stream = await getUserMedia({
-      video: CONFIG.VIDEO_CONSTRAINTS,
-      audio: false,
-    });
-
-    const video = dom.localVideo();
-    video.srcObject = state.stream;
-    await video.play();
-
-    // 等待视频元数据加载以获取真实分辨率
-    await new Promise((resolve) => {
-      if (video.videoWidth > 0) { resolve(); return; }
-      video.addEventListener('loadedmetadata', resolve, { once: true });
-    });
-
-    const canvas = dom.outputCanvas();
-    canvas.width  = video.videoWidth  || 1280;
-    canvas.height = video.videoHeight || 720;
-
-    state.isRunning = true;
-    dom.startOverlay().style.display = 'none';
-    dom.stopBtn().disabled   = false;
-    dom.captureBtn().disabled = false;
-
-    log(`摄像头启动 · ${video.videoWidth}×${video.videoHeight}`, 'ok');
-    startSendingFrames();
-
-  } catch (err) {
-    let hint = '';
-    if (err.name === 'NotAllowedError')  hint = '用户拒绝了摄像头权限，请在浏览器地址栏允许摄像头。';
-    if (err.name === 'NotFoundError')    hint = '未找到摄像头设备。';
-    if (err.name === 'NotReadableError') hint = '摄像头被其他程序占用。';
-    log(`摄像头错误 [${err.name}]: ${hint || err.message}`, 'error');
-    alert(`无法访问摄像头\n\n原因: ${hint || err.message}`);
-  }
-}
-
-// ── HTTPS 提示弹窗 ──────────────────────────────────────────────────────────
-function showHttpsModal(msg) {
-  // 移除旧弹窗
-  document.getElementById('httpsModal')?.remove();
-
-  const modal = document.createElement('div');
-  modal.id = 'httpsModal';
-  modal.style.cssText = `
-    position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;
-    display:flex;align-items:center;justify-content:center;
-    font-family:'Share Tech Mono',monospace;
-  `;
-  modal.innerHTML = `
-    <div style="
-      background:#0b1016;border:1px solid #ff3b6b;border-radius:8px;
-      padding:32px;max-width:500px;width:90%;color:#c8d8e8;
-    ">
-      <div style="color:#ff3b6b;font-size:18px;font-weight:700;margin-bottom:16px;letter-spacing:.1em;">
-        ⚠ 需要 HTTPS 访问
-      </div>
-      <pre style="font-size:12px;line-height:1.8;white-space:pre-wrap;color:#aaa;">${msg}</pre>
-      <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button onclick="window.location.href='http://localhost:'+location.port+location.pathname"
-          style="padding:8px 16px;background:#00e5ff22;border:1px solid #00e5ff;
-                 border-radius:4px;color:#00e5ff;cursor:pointer;font-family:inherit;">
-          切换到 localhost
-        </button>
-        <button onclick="document.getElementById('httpsModal').remove()"
-          style="padding:8px 16px;background:#ffffff11;border:1px solid #444;
-                 border-radius:4px;color:#aaa;cursor:pointer;font-family:inherit;">
-          关闭
-        </button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-}
 
 function stopStream() {
   state.isRunning = false;
   clearInterval(state.frameTimer);
-  if (state.stream) {
-    state.stream.getTracks().forEach(t => t.stop());
-    state.stream = null;
+  if (state.stream) { state.stream.getTracks().forEach(t => t.stop()); state.stream = null; }
+  $("startOverlay").style.display = "flex";
+  $("stopBtn").disabled = true; $("captureBtn").disabled = true;
+  if (state.source === "carla") {
+    log("帧流显示已暂停（Carla 仍在运行，可重新点击开始）", "warn");
+  } else {
+    log("已停止", "warn");
   }
-  dom.startOverlay().style.display = 'flex';
-  dom.stopBtn().disabled = true;
-  dom.captureBtn().disabled = true;
-  log('摄像头已停止', 'warn');
 }
 
-// ─── Frame Sending ────────────────────────────────────────────────────────────
 function startSendingFrames() {
-  const video = dom.localVideo();
-  const captureCanvas = document.createElement('canvas');
-  captureCanvas.width = video.videoWidth;
-  captureCanvas.height = video.videoHeight;
-  const ctx = captureCanvas.getContext('2d');
-
-  state.frameTimer = setInterval(() => {
-    if (!state.isRunning || !state.socket?.connected) return;
-    if (video.readyState < 2) return;
-
-    ctx.drawImage(video, 0, 0);
-    const dataUrl = captureCanvas.toDataURL('image/jpeg', CONFIG.JPEG_QUALITY);
-    state.socket.emit('video_frame', dataUrl);
+  const video=$('localVideo');
+  const cap=document.createElement('canvas'); cap.width=video.videoWidth; cap.height=video.videoHeight;
+  const ctx=cap.getContext('2d');
+  state.frameTimer=setInterval(()=>{
+    if(!state.isRunning||!state.socket?.connected) return;
+    if(video.readyState<2) return;
+    ctx.drawImage(video,0,0);
+    state.socket.emit('video_frame', cap.toDataURL('image/jpeg',CONFIG.JPEG_QUALITY));
   }, CONFIG.FRAME_INTERVAL_MS);
 }
 
-// ─── Processed Frame Handler ──────────────────────────────────────────────────
+// ─── Carla Stream ─────────────────────────────────────────────────────────────
+function startCarlaStream() {
+  // 预先把 canvas 设为已知尺寸，避免首帧画不出来
+  const canvas = $('outputCanvas');
+  if (canvas.width < 16)  canvas.width  = 1280;
+  if (canvas.height < 16) canvas.height = 720;
+
+  state.isRunning = true;
+  $('startOverlay').style.display = 'none';
+  $('stopBtn').disabled    = false;
+  $('captureBtn').disabled = false;
+  log('Carla 帧流已启动，等待后端推帧...', 'ok');
+}
+
+async function startStream() {
+  // Carla 模式：点"开始检测"等同于先连接再启动
+  if (state.source === 'carla') {
+    if (!state.carlaConnected) {
+      // 还没连接，自动触发连接流程
+      await carlaConnect();
+    } else {
+      // 已连接，直接启动帧流
+      startCarlaStream();
+    }
+    return;
+  }
+
+  // ── 摄像头模式（原有逻辑）──────────────────────────────────────────────
+  const isSecure = location.protocol === 'https:' ||
+    ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+  if (!isSecure) { showHttpsModal(); return; }
+  const gum = getCompatibleGetUserMedia();
+  if (!gum) { alert('浏览器不支持摄像头，请使用最新版 Chrome/Firefox'); return; }
+  try {
+    log('正在申请摄像头权限...');
+    state.stream = await gum({ video: CONFIG.VIDEO_CONSTRAINTS, audio: false });
+    const video = $('localVideo');
+    video.srcObject = state.stream;
+    await video.play();
+    await new Promise(res => {
+      if (video.videoWidth > 0) res();
+      else video.addEventListener('loadedmetadata', res, { once: true });
+    });
+    const canvas = $('outputCanvas');
+    canvas.width  = video.videoWidth  || 1280;
+    canvas.height = video.videoHeight || 720;
+    state.isRunning = true;
+    $('startOverlay').style.display = 'none';
+    $('stopBtn').disabled    = false;
+    $('captureBtn').disabled = false;
+    log(`摄像头启动 · ${video.videoWidth}×${video.videoHeight}`, 'ok');
+    startSendingFrames();
+  } catch (err) {
+    const hints = {
+      NotAllowedError:  '请在浏览器允许摄像头权限',
+      NotFoundError:    '未找到摄像头设备',
+      NotReadableError: '摄像头被其他程序占用',
+    };
+    log(`摄像头错误 [${err.name}]: ${hints[err.name] || err.message}`, 'error');
+    alert(`无法访问摄像头\n${hints[err.name] || err.message}`);
+  }
+}
+
+async function carlaConnect() {
+  if (!state.socket?.connected) { log('Socket 未连接', 'error'); return; }
+  const host = $('carlaHost').value || '127.0.0.1';
+  const port = parseInt($('carlaPort').value) || 2000;
+  log(`正在连接 Carla Server ${host}:${port} ...`, 'info');
+  $('carlaConnBtn').disabled = true;
+  $('startBtn') && ($('startBtn').disabled = true);
+  state.socket.emit('carla_connect', { host, port });
+}
+
+function carlaDisconnect() {
+  state.socket?.emit('carla_disconnect', {});
+  state.carlaConnected = false;
+  state.isRunning      = false;
+  $('startOverlay').style.display = 'flex';
+  $('stopBtn').disabled     = true;
+  $('captureBtn').disabled  = true;
+  $('carlaBadge').textContent  = '未连接';
+  $('carlaConnBtn').disabled   = false;
+  $('carlaDiscBtn').disabled   = true;
+  if ($('startBtn')) $('startBtn').disabled = false;
+  log('Carla 已断开', 'warn');
+}
+
+function handleCarlaStatus(data) {
+  if ($('startBtn')) $('startBtn').disabled = false;
+  if (data.ok) {
+    state.carlaConnected = true;
+    $('carlaBadge').textContent  = '已连接';
+    $('carlaConnBtn').disabled   = true;
+    $('carlaDiscBtn').disabled   = false;
+    log(data.msg, 'ok');
+    // 连接成功后自动启动帧流显示
+    startCarlaStream();
+  } else {
+    state.carlaConnected = false;
+    $('carlaBadge').textContent = '未连接';
+    $('carlaConnBtn').disabled  = false;
+    $('carlaDiscBtn').disabled  = true;
+    log(`Carla 连接失败: ${data.msg}`, 'error');
+  }
+}
+
+// ─── Drive Mode ───────────────────────────────────────────────────────────────
+function setDriveMode(auto) {
+  state.autoDrive = auto;
+  $('btnManual').classList.toggle('active',!auto);
+  $('btnAuto').classList.toggle('active', auto);
+  // D-pad 透明度
+  $('dpad').style.opacity = auto ? '0.35' : '1';
+  $('dpad').style.pointerEvents = auto ? 'none' : '';
+  state.socket?.emit('carla_control',{type:'auto_drive',enabled:auto});
+  log(`驾驶模式: ${auto?'自动前进':'人工控制'}`,'info');
+}
+
+// ─── D-Pad / Keyboard ─────────────────────────────────────────────────────────
+function keyDown(key) {
+  if (state.autoDrive) return;
+  const btnMap={throttle:'dpadUp',brake:'dpadBrake',left:'dpadLeft',right:'dpadRight'};
+  $(btnMap[key])?.classList.add('pressed');
+  state.socket?.emit('carla_control',{type:'key',key,pressed:true});
+}
+function keyUp(key) {
+  const btnMap={throttle:'dpadUp',brake:'dpadBrake',left:'dpadLeft',right:'dpadRight'};
+  $(btnMap[key])?.classList.remove('pressed');
+  state.socket?.emit('carla_control',{type:'key',key,pressed:false});
+}
+
+const KEY_MAP={'w':'throttle','arrowup':'throttle','s':'brake','arrowdown':'brake','a':'left','arrowleft':'left','d':'right','arrowright':'right'};
+document.addEventListener('keydown', e => {
+  if (state.source!=='carla'||state.autoDrive) return;
+  const k=KEY_MAP[e.key.toLowerCase()];
+  if(k){ e.preventDefault(); keyDown(k); }
+});
+document.addEventListener('keyup', e => {
+  if (state.source!=='carla') return;
+  const k=KEY_MAP[e.key.toLowerCase()];
+  if(k){ e.preventDefault(); keyUp(k); }
+});
+
+// ─── Frame Handler ────────────────────────────────────────────────────────────
 function handleProcessedFrame(data) {
-  // Draw returned frame
-  const canvas = dom.outputCanvas();
-  const ctx = canvas.getContext('2d');
+  // 收到第一帧时确保 overlay 已隐藏
+  if (!state.isRunning) {
+    state.isRunning = true;
+    $('startOverlay').style.display = 'none';
+    $('stopBtn').disabled    = false;
+    $('captureBtn').disabled = false;
+    log('收到第一帧，画面已启动', 'ok');
+  }
+  const canvas = $('outputCanvas'), ctx = canvas.getContext('2d');
   const img = new Image();
   img.onload = () => {
-    if (canvas.width !== img.width) canvas.width = img.width;
-    if (canvas.height !== img.height) canvas.height = img.height;
+    // 先 resize 再 draw，避免 resize 清空画布
+    if (canvas.width !== img.width || canvas.height !== img.height) {
+      canvas.width  = img.width;
+      canvas.height = img.height;
+    }
     ctx.drawImage(img, 0, 0);
   };
   img.src = data.frame;
 
-  // Update stats
-  const now = performance.now();
-  if (state.lastFrameTime > 0) {
-    const dt = now - state.lastFrameTime;
-    state.fpsHistory.push(1000 / dt);
-    if (state.fpsHistory.length > 20) state.fpsHistory.shift();
+  const now=performance.now();
+  if(state.lastFrameTime>0){ state.fpsHistory.push(1000/(now-state.lastFrameTime)); if(state.fpsHistory.length>20)state.fpsHistory.shift(); }
+  state.lastFrameTime=now;
+  const fps=state.fpsHistory.length?(state.fpsHistory.reduce((a,b)=>a+b,0)/state.fpsHistory.length).toFixed(1):'—';
+
+  $('statPersons').textContent=data.detections.length;
+  $('statFrames').textContent=data.frame_count;
+  $('statFps').textContent=fps;
+  $('statLatency').textContent=data.latency_ms;
+  $('fpsChip').textContent=`FPS: ${fps}`;
+  $('latencyChip').textContent=`LAT: ${data.latency_ms}ms`;
+  $('hudPersonCount').textContent=`${data.detections.length} PERSONS`;
+
+  // 更新 Carla 车辆状态
+  if (data.vehicle && Object.keys(data.vehicle).length) {
+    const v=data.vehicle;
+    $('vSpeed').textContent=v.speed_kmh??'—';
+    $('vYaw').textContent=v.rotation?.yaw??'—';
+    $('carlaSpeed').textContent=`SPD: ${v.speed_kmh??'—'} km/h`;
+    $('carlaMode').textContent=v.auto_drive?'AUTO':'MANUAL';
   }
-  state.lastFrameTime = now;
-  state.frameCount = data.frame_count;
 
-  const fps = state.fpsHistory.length
-    ? (state.fpsHistory.reduce((a,b) => a+b, 0) / state.fpsHistory.length).toFixed(1)
-    : '—';
-
-  dom.statPersons().textContent = data.detections.length;
-  dom.statFrames().textContent = data.frame_count;
-  dom.statFps().textContent = fps;
-  dom.statLatency().textContent = data.latency_ms;
-  dom.fpsChip().textContent = `FPS: ${fps}`;
-  dom.latencyChip().textContent = `LAT: ${data.latency_ms}ms`;
-  dom.hudPersonCount().textContent = `${data.detections.length} PERSONS`;
-
-  // Update detection list
   renderDetections(data.detections);
 }
 
-function renderDetections(detections) {
-  const list = dom.detectionList();
-  if (!detections.length) {
-    list.innerHTML = '<div class="det-empty">暂无检测目标</div>';
-    return;
-  }
-  list.innerHTML = detections.map((d, i) => `
+function renderDetections(dets) {
+  const list=$('detectionList');
+  if(!dets.length){ list.innerHTML='<div class="det-empty">暂无检测目标</div>'; return; }
+  list.innerHTML=dets.map((d,i)=>`
     <div class="det-item">
       <span class="det-idx">${String(i+1).padStart(2,'0')}</span>
       <span class="det-label">${d.label}</span>
-      <span class="det-conf">${(d.conf * 100).toFixed(0)}%</span>
-    </div>
-  `).join('');
+      <span class="det-conf">${(d.conf*100).toFixed(0)}%</span>
+    </div>`).join('');
 }
 
-// ─── Settings Emission ────────────────────────────────────────────────────────
-function emitSettings(partial) {
-  if (!state.socket?.connected) return;
-  state.socket.emit('update_settings', partial);
-}
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function emitSettings(partial) { state.socket?.connected && state.socket.emit('update_settings',partial); }
 
-// ─── Controls Wiring ─────────────────────────────────────────────────────────
-function wireControls() {
-  // Start / Stop
-  dom.startBtn().addEventListener('click', startStream);
-  dom.stopBtn().addEventListener('click', stopStream);
-
-  // Capture screenshot
-  dom.captureBtn().addEventListener('click', () => {
-    const canvas = dom.outputCanvas();
-    const a = document.createElement('a');
-    a.download = `advershield_${Date.now()}.jpg`;
-    a.href = canvas.toDataURL('image/jpeg', 0.92);
-    a.click();
-    log('截图已保存', 'ok');
-  });
-
-  // Fullscreen
-  dom.fullscreenBtn().addEventListener('click', () => {
-    const stage = document.querySelector('.center-stage');
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      stage.requestFullscreen();
-    }
-  });
-
-  // Confidence slider
-  dom.confSlider().addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value).toFixed(2);
-    dom.confVal().textContent = val;
-    state.confidence = parseFloat(val);
-    emitSettings({ confidence: state.confidence });
-  });
-
-  // Show boxes toggle
-  dom.showBoxes().addEventListener('change', (e) => {
-    state.showBoxes = e.target.checked;
-    emitSettings({ show_boxes: state.showBoxes });
-  });
-
-  // Purify toggle
-  dom.enablePurify().addEventListener('change', (e) => {
-    state.purifyEnabled = e.target.checked;
-    emitSettings({ purify: state.purifyEnabled });
-    updatePurifyStatus(state.purifyEnabled);
-    dom.hudPurify().textContent = `PURIFY: ${state.purifyEnabled ? 'ON' : 'OFF'}`;
-    log(`补丁净化: ${state.purifyEnabled ? '启用' : '禁用'}`, state.purifyEnabled ? 'ok' : 'warn');
-  });
-
-  // Overlay toggle
-  dom.enableOverlay().addEventListener('change', (e) => {
-    state.overlayEnabled = e.target.checked;
-    emitSettings({ show_overlay: state.overlayEnabled });
-    log(`图片叠加: ${state.overlayEnabled ? '启用' : '禁用'}`, 'info');
-  });
-
-  // Overlay position
-  dom.overlayPosition().addEventListener('change', (e) => {
-    state.overlayPosition = e.target.value;
-    emitSettings({ overlay_position: state.overlayPosition });
-  });
-
-  // File upload for custom overlays
-  dom.overlayUpload().addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    log(`上传覆盖图: ${file.name}...`, 'info');
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const res = await fetch('/api/overlays/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) {
-        log(`上传成功: ${file.name}`, 'ok');
-        await loadOverlays();
-      } else {
-        log('上传失败', 'error');
-      }
-    } catch {
-      // Fallback: use local object URL for display (no server upload)
-      log('上传接口不可用，使用本地预览', 'warn');
-      const url = URL.createObjectURL(file);
-      const grid = dom.overlayGrid();
-      const item = document.createElement('div');
-      item.className = 'ov-item';
-      item.innerHTML = `<img src="${url}" alt="${file.name}"><div class="ov-label">${file.name}</div>`;
-      item.addEventListener('click', () => {
-        // Register with backend via a data URL approach won't work fully without server
-        // but we can show selection
-        selectOverlay(file.name, item);
-      });
-      grid.appendChild(item);
-    }
-  });
-}
-
-// ─── Purify Status UI ─────────────────────────────────────────────────────────
 function updatePurifyStatus(active) {
-  const indicator = dom.purifyStatus().querySelector('.purify-indicator');
-  const text = indicator.querySelector('.pi-text');
-  if (active) {
-    indicator.classList.remove('inactive');
-    indicator.classList.add('active');
-    text.textContent = 'SAC净化模块运行中';
-  } else {
-    indicator.classList.add('inactive');
-    indicator.classList.remove('active');
-    text.textContent = '净化模块待机中';
-  }
+  const ind=$('purifyStatus').querySelector('.purify-indicator');
+  const txt=ind.querySelector('.pi-text');
+  ind.classList.toggle('inactive',!active); ind.classList.toggle('active',active);
+  txt.textContent=active?'SAC净化模块运行中':'净化模块待机中';
 }
 
-// ─── API Status Check ─────────────────────────────────────────────────────────
-async function checkApiStatus() {
-  try {
-    const res = await fetch('/api/status');
-    const data = await res.json();
-    log(`系统状态 · CUDA: ${data.cuda_available ? '可用' : '不可用'} · 设备: ${data.device}`, 'ok');
-  } catch {
-    log('API状态检查失败', 'warn');
-  }
+// ─── HTTPS Modal ──────────────────────────────────────────────────────────────
+function showHttpsModal() {
+  $('httpsModal')?.remove();
+  const m=document.createElement('div'); m.id='httpsModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:"Share Tech Mono",monospace;';
+  m.innerHTML=`<div style="background:#0b1016;border:1px solid #ff3b6b;border-radius:8px;padding:32px;max-width:480px;width:90%;color:#c8d8e8;">
+    <div style="color:#ff3b6b;font-size:18px;font-weight:700;margin-bottom:16px;">⚠ 需要 HTTPS 访问</div>
+    <p style="font-size:12px;line-height:1.8;color:#aaa;">摄像头需要 HTTPS 或 localhost。<br>
+    ① 用 <code>http://localhost:8000</code> 访问<br>
+    ② 运行 <code>./start_https.sh</code> 启用 HTTPS</p>
+    <div style="margin-top:16px;display:flex;gap:8px;">
+      <button onclick="window.location.href='http://localhost:'+location.port+location.pathname"
+        style="padding:7px 14px;background:#00e5ff22;border:1px solid #00e5ff;border-radius:4px;color:#00e5ff;cursor:pointer;font-family:inherit;">
+        切换 localhost</button>
+      <button onclick="document.getElementById('httpsModal').remove()"
+        style="padding:7px 14px;background:#fff1;border:1px solid #444;border-radius:4px;color:#aaa;cursor:pointer;font-family:inherit;">
+        关闭</button>
+    </div></div>`;
+  document.body.appendChild(m);
+}
+
+// ─── Wire Controls ────────────────────────────────────────────────────────────
+function wireControls() {
+  $('startBtn').addEventListener('click', startStream);
+  $('stopBtn').addEventListener('click', stopStream);
+  $('captureBtn').addEventListener('click', ()=>{
+    const a=document.createElement('a'); a.download=`advershield_${Date.now()}.jpg`;
+    a.href=$('outputCanvas').toDataURL('image/jpeg',0.92); a.click();
+    log('截图已保存','ok');
+  });
+  $('fullscreenBtn').addEventListener('click', ()=>{
+    const s=document.querySelector('.center-stage');
+    document.fullscreenElement ? document.exitFullscreen() : s.requestFullscreen();
+  });
+  $('confSlider').addEventListener('input', e=>{
+    const v=parseFloat(e.target.value).toFixed(2);
+    $('confVal').textContent=v; state.confidence=parseFloat(v);
+    emitSettings({confidence:state.confidence});
+  });
+  $('showBoxes').addEventListener('change', e=>{ state.showBoxes=e.target.checked; emitSettings({show_boxes:state.showBoxes}); });
+  $('enablePurify').addEventListener('change', e=>{
+    state.purifyEnabled=e.target.checked; emitSettings({purify:state.purifyEnabled});
+    updatePurifyStatus(state.purifyEnabled);
+    $('hudPurify').textContent=`PURIFY: ${state.purifyEnabled?'ON':'OFF'}`;
+    log(`补丁净化: ${state.purifyEnabled?'启用':'禁用'}`,state.purifyEnabled?'ok':'warn');
+  });
+  $('enableOverlay').addEventListener('change', e=>{ state.overlayEnabled=e.target.checked; emitSettings({show_overlay:state.overlayEnabled}); });
+  $('overlayPosition').addEventListener('change', e=>{ state.overlayPosition=e.target.value; emitSettings({overlay_position:state.overlayPosition}); });
+  $('overlayUpload').addEventListener('change', async e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const fd=new FormData(); fd.append('file',file);
+    try {
+      const res=await fetch('/api/overlays/upload',{method:'POST',body:fd});
+      if(res.ok){ log(`上传成功: ${file.name}`,'ok'); await loadOverlays(); }
+      else log('上传失败','error');
+    } catch { log('上传失败','error'); }
+  });
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
-  log('AdverShield 系统初始化...', 'info');
+  log('AdverShield 系统初始化...');
   wireControls();
   initSocket();
-  await checkApiStatus();
-  log('就绪 · 请点击"开始检测"', 'ok');
+  log('就绪','ok');
 }
-
 document.addEventListener('DOMContentLoaded', init);

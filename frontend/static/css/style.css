@@ -703,3 +703,172 @@
     .app-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
     .panel { display: none; }
   }
+  
+  /* ══════════════════════════════════════════════════════════
+     Carla 仿真控制 扩展样式
+     ══════════════════════════════════════════════════════════ */
+  
+  /* ── 图像源切换按钮 ── */
+  .source-toggle {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .src-btn {
+    padding: 4px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    color: var(--text2);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--trans);
+    letter-spacing: 0.04em;
+  }
+  .src-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .src-btn.active {
+    background: rgba(0,229,255,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  
+  /* ── Carla 连接按钮组 ── */
+  .carla-conn-btns {
+    display: flex;
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  .carla-conn-btns .ctrl-btn { flex: 1; padding: 8px 4px; font-size: 12px; }
+  
+  /* ── 驾驶模式按钮 ── */
+  .drive-mode-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .drive-btn {
+    padding: 10px 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--r2);
+    color: var(--text2);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--trans);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    letter-spacing: 0.04em;
+  }
+  .drive-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+  .drive-btn.active {
+    background: rgba(123,47,255,0.15);
+    border-color: var(--accent2);
+    color: var(--accent2);
+    box-shadow: 0 0 12px rgba(123,47,255,0.2);
+  }
+  .drive-btn#btnAuto.active {
+    background: rgba(0,255,136,0.1);
+    border-color: var(--green);
+    color: var(--green);
+    box-shadow: 0 0 12px rgba(0,255,136,0.15);
+  }
+  .drive-icon { font-size: 16px; }
+  
+  /* ── D-Pad 方向键 ── */
+  .dpad-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .dpad-row { display: flex; gap: 4px; justify-content: center; }
+  .dpad-mid { align-items: center; }
+  .dpad-btn {
+    width: 52px; height: 52px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--r2);
+    color: var(--text2);
+    font-size: 18px;
+    cursor: pointer;
+    transition: var(--trans);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dpad-btn:hover   { border-color: var(--accent); color: var(--accent); }
+  .dpad-btn:active,
+  .dpad-btn.pressed {
+    background: rgba(0,229,255,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 10px rgba(0,229,255,0.25);
+    transform: scale(0.94);
+  }
+  .dpad-brake {
+    width: 40px; height: 40px;
+    background: rgba(255,59,107,0.1);
+    border-color: rgba(255,59,107,0.3);
+    color: var(--accent3);
+    font-size: 14px;
+  }
+  .dpad-brake:hover   { border-color: var(--accent3); }
+  .dpad-brake:active,
+  .dpad-brake.pressed { background: rgba(255,59,107,0.25); border-color: var(--accent3); }
+  .dpad-hint {
+    font-family: var(--font-data);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 4px;
+    letter-spacing: 0.06em;
+  }
+  
+  /* ── Carla HUD 覆盖层 ── */
+  .carla-hud {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    z-index: 11;
+    pointer-events: none;
+  }
+  .carla-hud span {
+    font-family: var(--font-data);
+    font-size: 13px;
+    padding: 3px 10px;
+    background: rgba(8,12,16,0.75);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: var(--r);
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-shadow: 0 0 8px rgba(0,229,255,0.4);
+  }
+  .carla-hud #carlaMode { color: var(--green); border-color: rgba(0,255,136,0.2); }
+  
+  /* ── text-input ── */
+  .text-input {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: var(--font-data);
+    font-size: 12px;
+    outline: none;
+    transition: var(--trans);
+  }
+  .text-input:focus { border-color: var(--accent); }

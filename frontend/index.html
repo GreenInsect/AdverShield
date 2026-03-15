@@ -10,7 +10,8 @@
 <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-<!-- ══════════════════════════════════════════════════════ HEADER -->
+
+<!-- ══════════════════════════════════════ HEADER -->
 <header class="site-header">
   <div class="header-left">
     <div class="logo-mark">
@@ -36,32 +37,28 @@
       <span class="info-chip" id="deviceChip">DEVICE: —</span>
       <span class="info-chip" id="fpsChip">FPS: —</span>
       <span class="info-chip" id="latencyChip">LAT: —ms</span>
+      <!-- 图像源切换 -->
+      <div class="source-toggle">
+        <button class="src-btn active" id="srcWebcam" onclick="switchSource('webcam')">摄像头</button>
+        <button class="src-btn" id="srcCarla" onclick="switchSource('carla')">Carla仿真</button>
+      </div>
     </div>
   </div>
 </header>
 
-<!-- ══════════════════════════════════════════════════════ MAIN LAYOUT -->
+<!-- ══════════════════════════════════════ MAIN -->
 <main class="app-layout">
 
-  <!-- ── LEFT PANEL ─────────────────────────────────────────── -->
+  <!-- ── LEFT PANEL ── -->
   <aside class="panel panel-left">
-
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">◈</span>
-        <span>模型选择</span>
-        <span class="section-badge" id="modelBadge">YOLOv8n</span>
-      </div>
-      <div class="model-grid" id="modelGrid">
-        <!-- populated by JS -->
-      </div>
+      <div class="section-header"><span class="section-icon">◈</span><span>模型选择</span>
+        <span class="section-badge" id="modelBadge">YOLOv8n</span></div>
+      <div class="model-grid" id="modelGrid"></div>
     </section>
 
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">⬡</span>
-        <span>推理参数</span>
-      </div>
+      <div class="section-header"><span class="section-icon">⬡</span><span>推理参数</span></div>
       <div class="param-row">
         <label>置信度阈值</label>
         <div class="slider-wrap">
@@ -72,85 +69,46 @@
     </section>
 
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">◉</span>
-        <span>检测可视化</span>
-      </div>
-      <label class="toggle-row">
-        <span>显示检测框</span>
-        <div class="toggle-switch">
-          <input type="checkbox" id="showBoxes" checked>
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </div>
+      <div class="section-header"><span class="section-icon">◉</span><span>检测可视化</span></div>
+      <label class="toggle-row"><span>显示检测框</span>
+        <div class="toggle-switch"><input type="checkbox" id="showBoxes" checked>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span></div>
       </label>
     </section>
 
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">▣</span>
-        <span>实时统计</span>
-      </div>
+      <div class="section-header"><span class="section-icon">▣</span><span>实时统计</span></div>
       <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-val" id="statPersons">0</div>
-          <div class="stat-label">检测人数</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-val" id="statFrames">0</div>
-          <div class="stat-label">处理帧数</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-val" id="statFps">—</div>
-          <div class="stat-label">当前FPS</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-val" id="statLatency">—</div>
-          <div class="stat-label">延迟(ms)</div>
-        </div>
+        <div class="stat-card"><div class="stat-val" id="statPersons">0</div><div class="stat-label">检测人数</div></div>
+        <div class="stat-card"><div class="stat-val" id="statFrames">0</div><div class="stat-label">处理帧数</div></div>
+        <div class="stat-card"><div class="stat-val" id="statFps">—</div><div class="stat-label">当前FPS</div></div>
+        <div class="stat-card"><div class="stat-val" id="statLatency">—</div><div class="stat-label">延迟(ms)</div></div>
       </div>
     </section>
 
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">◈</span>
-        <span>检测详情</span>
-      </div>
-      <div class="detection-list" id="detectionList">
-        <div class="det-empty">暂无检测目标</div>
-      </div>
+      <div class="section-header"><span class="section-icon">◈</span><span>检测详情</span></div>
+      <div class="detection-list" id="detectionList"><div class="det-empty">暂无检测目标</div></div>
     </section>
-
   </aside>
 
-  <!-- ── CENTER STAGE ───────────────────────────────────────── -->
+  <!-- ── CENTER ── -->
   <section class="center-stage">
     <div class="video-container">
-      <!-- 原始摄像头（隐藏，用于推帧） -->
       <video id="localVideo" autoplay muted playsinline></video>
-
-      <!-- 后端处理后返回的帧 -->
       <canvas id="outputCanvas"></canvas>
-
-      <!-- 覆盖层 HUD -->
       <div class="video-hud">
-        <div class="hud-corner hud-tl">
-          <span class="hud-text">LIVE</span>
-          <span class="hud-dot blink"></span>
-        </div>
-        <div class="hud-corner hud-tr">
-          <span class="hud-text" id="hudModel">YOLOv8n</span>
-        </div>
-        <div class="hud-corner hud-bl">
-          <span class="hud-text" id="hudPurify">PURIFY: OFF</span>
-        </div>
-        <div class="hud-corner hud-br">
-          <span class="hud-text" id="hudPersonCount">0 PERSONS</span>
-        </div>
-        <!-- 扫描线动画 -->
+        <div class="hud-corner hud-tl"><span class="hud-text" id="hudSource">WEBCAM</span><span class="hud-dot blink"></span></div>
+        <div class="hud-corner hud-tr"><span class="hud-text" id="hudModel">YOLOv8n</span></div>
+        <div class="hud-corner hud-bl"><span class="hud-text" id="hudPurify">PURIFY: OFF</span></div>
+        <div class="hud-corner hud-br"><span class="hud-text" id="hudPersonCount">0 PERSONS</span></div>
         <div class="scan-line"></div>
       </div>
-
-      <!-- 启动引导 -->
+      <!-- 车速/模式 HUD（Carla模式显示）-->
+      <div class="carla-hud" id="carlaHud" style="display:none">
+        <span id="carlaSpeed">SPD: —</span>
+        <span id="carlaMode">MANUAL</span>
+      </div>
       <div class="video-overlay" id="startOverlay">
         <div class="start-content">
           <div class="start-icon">
@@ -160,48 +118,98 @@
               <polygon points="26,22 26,42 46,32" fill="var(--accent)"/>
             </svg>
           </div>
-          <div class="start-title">启动摄像头</div>
-          <div class="start-sub">点击开始实时对抗补丁检测</div>
-          <button class="btn-start" id="startBtn">
-            <span>◉ 开始检测</span>
-          </button>
+          <div class="start-title" id="startTitle">启动摄像头</div>
+          <div class="start-sub" id="startSub">点击开始实时对抗补丁检测</div>
+          <button class="btn-start" id="startBtn"><span>◉ 开始检测</span></button>
         </div>
       </div>
     </div>
-
-    <!-- 底部控制条 -->
     <div class="control-bar">
-      <button class="ctrl-btn" id="stopBtn" disabled>
-        <span>◼ 停止</span>
-      </button>
-      <button class="ctrl-btn ctrl-primary" id="captureBtn" disabled>
-        <span>⊡ 截图</span>
-      </button>
-      <button class="ctrl-btn" id="fullscreenBtn">
-        <span>⊞ 全屏</span>
-      </button>
+      <button class="ctrl-btn" id="stopBtn" disabled><span>◼ 停止</span></button>
+      <button class="ctrl-btn ctrl-primary" id="captureBtn" disabled><span>⊡ 截图</span></button>
+      <button class="ctrl-btn" id="fullscreenBtn"><span>⊞ 全屏</span></button>
     </div>
   </section>
 
-  <!-- ── RIGHT PANEL ────────────────────────────────────────── -->
+  <!-- ── RIGHT PANEL ── -->
   <aside class="panel panel-right">
 
-    <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">⬡</span>
-        <span>补丁净化防御</span>
+    <!-- Carla 控制面板（仅 Carla 模式显示）-->
+    <section class="panel-section" id="carlaPanel" style="display:none">
+      <div class="section-header"><span class="section-icon">◈</span><span>Carla 仿真控制</span>
+        <span class="section-badge" id="carlaBadge">未连接</span>
       </div>
-      <label class="toggle-row highlight-toggle">
-        <span>启用SAC净化</span>
-        <div class="toggle-switch">
-          <input type="checkbox" id="enablePurify">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+
+      <!-- 连接配置 -->
+      <div class="param-row">
+        <label>服务器地址</label>
+        <input class="text-input" id="carlaHost" value="127.0.0.1" placeholder="127.0.0.1">
+      </div>
+      <div class="param-row">
+        <label>端口</label>
+        <input class="text-input" id="carlaPort" value="2000" placeholder="2000">
+      </div>
+      <div class="carla-conn-btns">
+        <button class="ctrl-btn ctrl-primary" id="carlaConnBtn" onclick="carlaConnect()">连接仿真器</button>
+        <button class="ctrl-btn" id="carlaDiscBtn" onclick="carlaDisconnect()" disabled>断开</button>
+      </div>
+
+      <!-- 驾驶模式 -->
+      <div class="section-header" style="margin-top:12px"><span class="section-icon">⬡</span><span>驾驶模式</span></div>
+      <div class="drive-mode-btns">
+        <button class="drive-btn active" id="btnManual" onclick="setDriveMode(false)">
+          <span class="drive-icon">✋</span> 人工控制
+        </button>
+        <button class="drive-btn" id="btnAuto" onclick="setDriveMode(true)">
+          <span class="drive-icon">▶</span> 自动前进
+        </button>
+      </div>
+
+      <!-- 人工控制方向键 -->
+      <div class="section-header" style="margin-top:12px"><span class="section-icon">◉</span><span>方向控制</span></div>
+      <div class="dpad-container" id="dpad">
+        <div class="dpad-row">
+          <button class="dpad-btn dpad-up"    id="dpadUp"
+            onmousedown="keyDown('throttle')" onmouseup="keyUp('throttle')"
+            ontouchstart="keyDown('throttle')" ontouchend="keyUp('throttle')">▲</button>
         </div>
+        <div class="dpad-row dpad-mid">
+          <button class="dpad-btn dpad-left"  id="dpadLeft"
+            onmousedown="keyDown('left')" onmouseup="keyUp('left')"
+            ontouchstart="keyDown('left')" ontouchend="keyUp('left')">◀</button>
+          <button class="dpad-btn dpad-brake" id="dpadBrake"
+            onmousedown="keyDown('brake')" onmouseup="keyUp('brake')"
+            ontouchstart="keyDown('brake')" ontouchend="keyUp('brake')">■</button>
+          <button class="dpad-btn dpad-right" id="dpadRight"
+            onmousedown="keyDown('right')" onmouseup="keyUp('right')"
+            ontouchstart="keyDown('right')" ontouchend="keyUp('right')">▶</button>
+        </div>
+        <div class="dpad-row">
+          <button class="dpad-btn dpad-down"  id="dpadDown"
+            onmousedown="keyDown('brake')" onmouseup="keyUp('brake')"
+            ontouchstart="keyDown('brake')" ontouchend="keyUp('brake')">▼</button>
+        </div>
+        <div class="dpad-hint">也可使用键盘 W/A/S/D 或方向键</div>
+      </div>
+
+      <!-- 车辆状态 -->
+      <div class="section-header" style="margin-top:10px"><span class="section-icon">▣</span><span>车辆状态</span></div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val" id="vSpeed">—</div><div class="stat-label">速度 km/h</div></div>
+        <div class="stat-card"><div class="stat-val" id="vYaw">—</div><div class="stat-label">偏航角°</div></div>
+      </div>
+    </section>
+
+    <!-- 补丁净化 -->
+    <section class="panel-section">
+      <div class="section-header"><span class="section-icon">⬡</span><span>补丁净化防御</span></div>
+      <label class="toggle-row highlight-toggle"><span>启用SAC净化</span>
+        <div class="toggle-switch"><input type="checkbox" id="enablePurify">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span></div>
       </label>
       <div class="purify-status" id="purifyStatus">
         <div class="purify-indicator inactive">
-          <span class="pi-dot"></span>
-          <span class="pi-text">净化模块待机中</span>
+          <span class="pi-dot"></span><span class="pi-text">净化模块待机中</span>
         </div>
       </div>
       <div class="purify-desc">
@@ -209,19 +217,13 @@
       </div>
     </section>
 
+    <!-- 覆盖图片 -->
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">▦</span>
-        <span>人体覆盖图片</span>
-      </div>
-      <label class="toggle-row">
-        <span>启用图片叠加</span>
-        <div class="toggle-switch">
-          <input type="checkbox" id="enableOverlay">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </div>
+      <div class="section-header"><span class="section-icon">▦</span><span>人体覆盖图片</span></div>
+      <label class="toggle-row"><span>启用图片叠加</span>
+        <div class="toggle-switch"><input type="checkbox" id="enableOverlay">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span></div>
       </label>
-
       <div class="overlay-controls" id="overlayControls">
         <div class="param-row" style="margin-top:10px">
           <label>叠加位置</label>
@@ -231,35 +233,23 @@
             <option value="full">全身</option>
           </select>
         </div>
-
-        <div class="overlay-grid" id="overlayGrid">
-          <div class="ov-loading">加载中...</div>
-        </div>
-
+        <div class="overlay-grid" id="overlayGrid"><div class="ov-loading">加载中...</div></div>
         <div class="upload-area" id="uploadArea">
           <input type="file" id="overlayUpload" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
-          <button class="btn-upload" onclick="document.getElementById('overlayUpload').click()">
-            ⊕ 上传自定义图片
-          </button>
+          <button class="btn-upload" onclick="document.getElementById('overlayUpload').click()">⊕ 上传自定义图片</button>
         </div>
       </div>
     </section>
 
+    <!-- 日志 -->
     <section class="panel-section">
-      <div class="section-header">
-        <span class="section-icon">◈</span>
-        <span>系统日志</span>
-      </div>
-      <div class="log-console" id="logConsole">
-        <div class="log-entry log-info">系统初始化...</div>
-      </div>
+      <div class="section-header"><span class="section-icon">◈</span><span>系统日志</span></div>
+      <div class="log-console" id="logConsole"><div class="log-entry log-info">系统初始化...</div></div>
     </section>
 
   </aside>
-
 </main>
 
-<!-- ══════════════════════════════════════════════════════ SCRIPTS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
