@@ -3,3 +3,4 @@ __pycache__/
 *.pt
 yolo2.weights
 carla_frames/
+*.log

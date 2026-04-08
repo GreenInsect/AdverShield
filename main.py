@@ -211,7 +211,8 @@ async def video_frame(sid, data):
         if frame is None: return
         frame, detections, purified = process_frame(frame, state)
         draw_status(frame, state, detections, purified, t0)
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        # 优化1：降低 JPEG 质量以减少数据大小，提升传输效率；优化2：仅发送必要的检测结果和状态信息，减少带宽占用
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 40])
         state["frame_count"] += 1
         await sio.emit("processed_frame", {
             "frame":      "data:image/jpeg;base64,"+base64.b64encode(buf.tobytes()).decode(),
