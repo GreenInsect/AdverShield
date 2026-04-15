@@ -313,36 +313,6 @@ document.addEventListener('keydown', e => {
   const k=KEY_MAP[e.key.toLowerCase()];
   if(k){ e.preventDefault(); keyDown(k); }
 });
-// function keyDown(key) {
-//   if (state.autoDrive) return;
-  
-//   // 1. 打印一下，确认函数内部是否收到了指令
-//   console.log("keyDown 执行中, key:", key);
-
-//   const btnMap = {
-//     throttle: 'dpadUp',
-//     brake: 'dpadBrake',
-//     left: 'dpadLeft',
-//     right: 'dpadRight',
-//     q: 'dpadQ'
-//   };
-
-//   // 2. 使用原生方式操作样式，并增加可选链防止报错
-//   const el = document.getElementById(btnMap[key]);
-//   if (el) {
-//     el.classList.add('pressed');
-//   } else {
-//     console.warn(`未找到 ID 为 ${btnMap[key]} 的按钮元素`);
-//   }
-
-//   // 3. 确保 socket 发送
-//   if (state.socket) {
-//     state.socket.emit('carla_control', { type: 'key', key, pressed: true });
-//     console.log(`[Socket] 已发送: ${key} pressed: true`);
-//   } else {
-//     console.error("Socket 未连接，无法发送指令");
-//   }
-// }
 document.addEventListener('keyup', e => {
   if (state.source!=='carla') return;
   const k=KEY_MAP[e.key.toLowerCase()];

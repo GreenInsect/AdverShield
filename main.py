@@ -183,7 +183,7 @@ carla_tasks:   dict = {}
 @sio.event
 async def connect(sid, environ):
     session_state[sid] = {
-        "model":"yolov8n","purify":False,"overlay":None,"overlay_position":"head",
+        "model":"yolov2","purify":False,"overlay":None,"overlay_position":"head",
         "show_overlay":False,"show_boxes":True,"confidence":0.4,"frame_count":0,"source":"webcam"
     }
     await sio.emit("connected", {"sid":sid,"device":str(device)}, to=sid)

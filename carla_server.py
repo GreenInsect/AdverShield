@@ -44,7 +44,7 @@ ws_clients   = set()
 
 auto_drive       = False    # 是否自动前进
 emergency_brake  = False    # main.py 检测到人时置 True，让控制循环刹车
-keys         = {"throttle": False, "brake": False, "left": False, "right": False}
+keys         = {"throttle": False, "brake": False, "left": False, "right": False, "q": False}  # 手动按键状态
 ctrl_running = False
 
 _frame_event = threading.Event()
@@ -208,7 +208,7 @@ def _ctrl_loop():
         try:
             ctrl = carla.VehicleControl()
             ctrl.hand_brake = False
-            ctrl.reverse    = False
+            ctrl.reverse = True if keys["q"] else False
 
             if emergency_brake:
                 # YOLO 检测到人 → 紧急刹车
